@@ -48,6 +48,9 @@ class BaseDiversityHandler(ABC):
         :param column: Column containing categories
         :type column: str
 
+        # When would you need to pass in the difference directly?
+        # I could understand wanting to override the standard deviation, since pooling age and bmi makes no sense
+        # but I can't understand wanting to override the calculated difference between groups in the dataset.
         :param difference: If provided, used as the numerator in effect size
             calculation rather than the difference in means, defaults to None
         :type difference: float
@@ -61,11 +64,12 @@ class BaseDiversityHandler(ABC):
         column_choices = self.metadata[column].unique()
         num_choices = len(column_choices)
 
+        # Maybe <= 1, in case they pass empty metadata
         if num_choices == 1:
             raise exc.OnlyOneCategoryError(self.metadata[column])
         elif num_choices == 2:
             effect_size_func = calculate_cohens_d
-        else:
+        else: # and >= 3
             effect_size_func = calculate_cohens_f
 
         # Create list of arrays for effect size calculation
@@ -91,6 +95,10 @@ class BaseDiversityHandler(ABC):
     ):
         """Perform power analysis using this diversity dataset.
 
+        # Enforcement of the Exactly one of blah must be None is kind of annoying.
+        # Some other options to try out:
+            # 3 separate functions - power_analysis_alpha(), power_analysis_difference(), power_analysis_total_observations()
+            # A wrapper class with three constructors: PowerAnalysisInput.from_obs(total_observations), PowerAnalysisInput.from_alpha(alpha) ...
         Exactly one of total_observations, alpha, or power must be None.
 
         Arguments can be either single values or sequences of values. If a
@@ -119,6 +127,17 @@ class BaseDiversityHandler(ABC):
         none_args = [x is None for x in args]
         if sum(none_args) != 1:  # Check to make sure exactly one arg is None
             raise exc.WrongPowerArguments(*args)
+
+        # Pretty minor, but changing the format of the return value based on the input arguments
+        # can sometimes be annoying.  If you find that you're rewriting code that calls
+        # into this function when you want to switch between trying one thing and trying two things,
+        # you can rewrite it so that this function always returns the bulk result and always takes bulk input
+        # You can then, if needed, write a separate wrapper function (power_analysis_single) that calls the bulk version
+        # and unwraps so you still have both api's, but each now has a specific return type.
+        #
+        # Since calculate_effect_size is your critical section for optimization, and it is only called from the _single_power_analysis,
+        # wrapping it to explicitly expose the bulk version may prevent the end user from wrapping your code in a for loop that
+        # loops in a bad order for your LRU cache.
 
         # If any of the arguments are iterable, perform power analysis on
         #     all possible argument combinations. Otherwise, perform a single
@@ -240,6 +259,22 @@ class BaseDiversityHandler(ABC):
         power = listify(power)
         power_args = [difference, total_observations, alpha, power]
 
+        # My feeling is that there are certain assumptions needed to make the LRU cache in calculate_effect_size useful.
+        # As it depends only on column and difference (and _incept_power_solve_function on column, difference and total observations)
+        # it requires a specific ordering of bulk analyses to make use of the lru cache.
+        # This could be done by sorting the power_arg_products tuple, when iterating over it
+        # but the single for loop over 4 element tuples could also be broken apart.
+        # I think this could be written as:
+        # for _diff
+        #   effect_size = calc_effect_size(column, _diff)
+        #   for _obs
+        #       power_solve_func = _incept_power_solve_function(col, _diff, _obs)
+        #       for _alpha
+        #           for _power
+        #               do_whatever(effect_size, power_solve_func, ...)
+        #
+        # With such a scheme, you wouldn't need the LRU caches, the same object is reused without lookup.
+
         power_arg_products = product(*power_args)
         results_list = []
         for _diff, _obs, _alpha, _power in power_arg_products:
@@ -252,6 +287,8 @@ class BaseDiversityHandler(ABC):
     def subset_values(self, ids: list):
         """Get subset of data given list of indices"""
 
+    # Love the name, but also, hate the name, and have no idea what it does
+    # Maybe tells me what to do in my dreams?
     @lru_cache()
     def _incept_power_solve_function(
         self,
