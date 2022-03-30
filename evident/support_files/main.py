@@ -50,6 +50,10 @@ plots_kw = {
 # https://github.com/bokeh/bokeh/issues/2351#issuecomment-108101144
 tools = ["pan", "reset", "box_zoom", "save"]
 hover = HoverTool(names=["points"])
+hover.tooltips = [
+    ("Total Observations", "@total_observations"),
+    ("Power", "@power{0.000}")
+]
 
 
 # Much of this taken from
