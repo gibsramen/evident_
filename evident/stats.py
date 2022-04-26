@@ -49,7 +49,9 @@ def calculate_cohens_f(*arrays) -> float:
     """Calculate Cohen's f using pooled standard deviation.
 
     tinyurl.com/4p47ffem
+    --------------------
     sigma_m^2 = sum_{i=1}^G (n_i/N)(mu_i - mu_w)^2
+    mu_w = sum_{i=1}^G (n_i/N) mu_i
 
     :param arrays: All arrays to pool
     :type arrays: np.ndarray, np.ndarray, ...
@@ -59,16 +61,15 @@ def calculate_cohens_f(*arrays) -> float:
     """
     pooled_std = calculate_pooled_stdev(*arrays)
 
+    # Calculate weighted mean of all groups
     concat_array = np.concatenate(arrays)
-    mu_total = np.mean(concat_array)
+    N = len(concat_array)
+    sample_sizes = np.array([len(x) for x in arrays])
+    means = np.array([np.mean(x) for x in arrays])
+    weights = sample_sizes / N
+    mu_weighted = np.dot(means, weights)
 
-    effect_size_numerator = 0
-    for array in arrays:
-        mu_group = np.mean(array)
-        effect_size_numerator += (
-            len(array) / len(concat_array)
-            * np.power(mu_group - mu_total, 2)
-        )
-    effect_size_numerator = np.sqrt(effect_size_numerator)
+    mean_diffs = np.power(means - mu_weighted, 2)
+    effect_size_numerator = np.sqrt(np.dot(weights, mean_diffs))
 
     return effect_size_numerator/pooled_std
